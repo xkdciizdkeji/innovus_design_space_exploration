@@ -19,39 +19,58 @@ def extract_data_from_logv(logv_file):
         'total_runtime': None
     }
     
-    # 读取整个文件内容
     try:
-        with open(logv_file, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # 按行读取文件
+        with open(logv_file, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
     except Exception as e:
         print(f"读取文件时出错: {e}")
         return result
     
-    # 找到所有 report_route -summary 命令块
-    report_route_blocks = re.findall(r'\[.*?\] <CMD> report_route -summary.*?(?=\[.*?\] <CMD>|\Z)', content, re.DOTALL)
+    # 查找 report_route -summary 命令的所有位置
+    summary_positions = []
+    for i, line in enumerate(lines):
+        if "<CMD> report_route -summary" in line:
+            summary_positions.append(i)
     
-    if not report_route_blocks:
-        print("未找到report_route -summary命令块")
+    if not summary_positions:
+        print(f"未在 {logv_file} 中找到 report_route -summary 命令")
         return result
     
-    # 取最后一个report_route命令块
-    last_report_block = report_route_blocks[-1]
+    # 使用最后一个报告块
+    pos = summary_positions[-1]
     
-    # 提取总线长
-    total_net_length_match = re.search(r'Total net length = ([\d.]+)', last_report_block)
-    if total_net_length_match:
-        result['total_net_length'] = float(total_net_length_match.group(1))
+    # 提取总线长 - 从命令位置向下搜索
+    for j in range(pos, min(pos + 200, len(lines))):
+        if "Total net length =" in lines[j]:
+            wire_match = re.search(r'Total net length = ([\d\.]+)', lines[j])
+            if wire_match:
+                result['total_net_length'] = float(wire_match.group(1))
+            break
     
-    # 提取总过孔数
-    # 先定位到Via Count Statistics部分
-    via_stats_section = re.search(r'Via Count Statistics :.*?\+\-+\+\-+\+\s*\|\s*Total\s*\|\s*(\d+)\s*\|', last_report_block, re.DOTALL)
-    if via_stats_section:
-        result['total_via_count'] = int(via_stats_section.group(1))
+    # 提取总过孔数 - 先找到 Via Count Statistics 部分
+    via_section_start = -1
+    for j in range(pos, min(pos + 200, len(lines))):
+        if "Via Count Statistics :" in lines[j]:
+            via_section_start = j
+            break
     
-    # 提取总运行时间（文件最后一行）
-    last_line_match = re.search(r'\[.*?\s+(\d+)s\] --- Ending "Innovus"', content)
-    if last_line_match:
-        result['total_runtime'] = int(last_line_match.group(1))
+    # 在该部分中查找 Total 行
+    if via_section_start > 0:
+        for j in range(via_section_start, min(via_section_start + 50, len(lines))):
+            if "|     Total      |" in lines[j]:
+                via_match = re.search(r'\|\s+Total\s+\|\s+(\d+)\s+\|', lines[j])
+                if via_match:
+                    result['total_via_count'] = int(via_match.group(1))
+                break
+    
+    # 从最后一行提取总运行时间
+    for i in range(len(lines)-1, max(0, len(lines)-50), -1):  # 从末尾向上搜索最多50行
+        if "--- Ending \"Innovus\"" in lines[i]:
+            time_match = re.search(r'\[\d+/\d+ \d+:\d+:\d+\s+(\d+)s\]', lines[i])
+            if time_match:
+                result['total_runtime'] = int(time_match.group(1))
+            break
     
     return result
 

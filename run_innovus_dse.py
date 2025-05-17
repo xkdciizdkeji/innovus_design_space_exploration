@@ -51,7 +51,8 @@ def run_innovus(case, boundary, core_utilization, iteration):
     返回:
         bool: 是否成功运行
     """
-    cmd = f"./run_innovus_dynamic.sh {case} {case}__{boundary}__{core_utilization}__{iteration}"
+    # cmd = f"./run_innovus_dynamic.sh {case} {boundary} {core_utilization} {iteration}"
+    cmd = f"./run_innovus_dynamic.sh {case} {boundary} {core_utilization} {iteration} place"
     print(f"执行命令: {cmd}")
     
     try:
@@ -64,19 +65,6 @@ def run_innovus(case, boundary, core_utilization, iteration):
         print(f"执行命令时出错: {e}")
         return False
 
-def get_logv_path(case, iteration):
-    """
-    获取logv文件路径
-    
-    参数:
-        case: 案例名称
-        iteration: 迭代次数
-    
-    返回:
-        str: logv文件路径
-    """
-    # innovus输出应该在output目录下，具体路径可能需要根据实际情况调整
-    return f"./output/{case}__{iteration}/{case}__{iteration}.logv"
 
 def generate_random_constraint(input_file, output_file, modification_type=None, shift_distance=1.0):
     """
@@ -151,7 +139,8 @@ def simulated_annealing(case, boundary, core_utilization, max_iterations=100, in
         return None
     
     # 提取初始结果
-    logv_path = get_logv_path(case, 0)
+    # logv_path = f"/mnt/hgfs/vm_share/eda/innovus_output_dse/case__${case}__core_utilization__${core_utilization}__boundary__${boundary}__iter__0/innovus.logv"
+    logv_path = f"/mnt/hgfs/vm_share/eda/innovus_output_dse/case__{case}__core_utilization__{core_utilization}__boundary__{boundary}__iter__0/innovus.logv"
     initial_data = extract_data_from_logv(logv_path)
     
     if initial_data['total_net_length'] is None:
@@ -204,7 +193,9 @@ def simulated_annealing(case, boundary, core_utilization, max_iterations=100, in
             continue
         
         # 提取结果
-        logv_path = get_logv_path(case, iteration)
+        # logv_path = get_logv_path(case, iteration)
+        # logv_path = f"/mnt/hgfs/vm_share/eda/innovus_output_dse/case__{case}__core_utilization__${core_utilization}__boundary__${boundary}__iter__${iteration}/innovus.logv"
+        logv_path = f"/mnt/hgfs/vm_share/eda/innovus_output_dse/case__{case}__core_utilization__{core_utilization}__boundary__{boundary}__iter__{iteration}/innovus.logv"
         current_data = extract_data_from_logv(logv_path)
         
         if current_data['total_net_length'] is None:

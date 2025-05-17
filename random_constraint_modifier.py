@@ -80,9 +80,19 @@ def extract_rectangles(points):
         bottom_points = [p[0] for p in sorted_points if p[1] == y_bottom]
         top_points = [p[0] for p in sorted_points if p[1] == y_top]
         
-        # 找出矩形的左右边界
-        left_x = max(min(bottom_points), min(top_points))
-        right_x = min(max(bottom_points), max(top_points))
+        # Find common points between bottom and top (boundary points)
+        common_points = set(bottom_points) & set(top_points)
+        
+        # If there are common points, use them as boundaries
+        # Otherwise fall back to the min/max of bottom points
+        left_x = min(common_points) if common_points else min(bottom_points)
+        right_x = max(common_points) if common_points else max(bottom_points)
+        
+
+
+        # # 找出矩形的左右边界
+        # left_x = max(min(bottom_points), min(top_points))
+        # right_x = min(max(bottom_points), max(top_points))
         
         # 添加矩形 [左下角, 右上角]
         rectangles.append([[left_x, y_bottom], [right_x, y_top]])
@@ -91,47 +101,92 @@ def extract_rectangles(points):
 
 def rectangles_to_points(rectangles):
     """
-    将矩形列表转换回多边形点序列
+    将矩形列表转换为多边形点序列（阶梯状多边形）
     
     参数:
         rectangles (list): 矩形列表，每个矩形由 [[左下x, 左下y], [右上x, 右上y]] 表示
-    
+        
     返回:
-        list: 点列表，以逆时针顺序排列
+        list: 多边形点序列，按逆时针顺序排列
     """
-    # 按底部y坐标排序矩形
+    if not rectangles:
+        return []
+    
+    # 按底部y坐标排序矩形（从下到上）
     sorted_rects = sorted(rectangles, key=lambda r: r[0][1])
     
-    points = []
-    for i, rect in enumerate(sorted_rects):
-        left_bottom_x, bottom_y = rect[0]
-        right_bottom_x, _ = rect[1]
+    # 提取每层矩形的左右端点和y坐标
+    layer_endpoints = []
+    for rect in sorted_rects:
+        left_x, bottom_y = rect[0]
+        right_x, top_y = rect[1]
         
-        # 添加左下角点
-        if i == 0 or left_bottom_x != sorted_rects[i-1][0][0]:
-            points.append([left_bottom_x, bottom_y])
-        
-        # 添加右下角点
-        if i == 0 or right_bottom_x != sorted_rects[i-1][1][0]:
-            points.append([right_bottom_x, bottom_y])
+        # 添加底部端点
+        layer_endpoints.append((left_x, right_x, bottom_y))
+        # 添加顶部端点
+        layer_endpoints.append((left_x, right_x, top_y))
     
-    # 添加右上角点（从上到下）
-    for i in range(len(sorted_rects) - 1, -1, -1):
-        rect = sorted_rects[i]
-        right_top_x, top_y = rect[1]
-        
-        if i == len(sorted_rects) - 1 or right_top_x != sorted_rects[i+1][1][0]:
-            points.append([right_top_x, top_y])
+    # 按y坐标从小到大排序
+    sorted_endpoints = sorted(layer_endpoints, key=lambda e: e[2])
     
-    # 添加左上角点（从上到下）
-    for i in range(len(sorted_rects) - 1, -1, -1):
-        rect = sorted_rects[i]
-        left_top_x, top_y = rect[0][0], rect[1][1]
-        
-        if i == len(sorted_rects) - 1 or left_top_x != sorted_rects[i+1][0][0]:
-            points.append([left_top_x, top_y])
+    # 合并相同高度的端点
+    merged_endpoints = []
+    current_y = None
+    current_left = float('inf')
+    current_right = float('-inf')
     
-    return points
+    for left_x, right_x, y in sorted_endpoints:
+        if y != current_y:
+            # 保存前一层（如果存在）
+            if current_y is not None:
+                merged_endpoints.append((current_left, current_right, current_y))
+            # 开始新的一层
+            current_y = y
+            current_left = left_x
+            current_right = right_x
+        else:
+            # 更新当前层的左右端点
+            current_left = min(current_left, left_x)
+            current_right = max(current_right, right_x)
+    
+    # 添加最后一层
+    if current_y is not None:
+        merged_endpoints.append((current_left, current_right, current_y))
+    
+    # 分别构建左侧轮廓和右侧轮廓
+    left_profile = []
+    right_profile = []
+    
+    # 处理每一层的端点
+    for i, (left_x, right_x, y) in enumerate(merged_endpoints):
+        # 处理左侧轮廓
+        if i > 0:
+            prev_left_x = merged_endpoints[i-1][0]
+            # 如果左侧x坐标变化，添加一个垂直连接点
+            if abs(left_x - prev_left_x) > 1e-6:
+                left_profile.append((prev_left_x, y))
+        
+        # 添加当前左侧点
+        left_profile.append((left_x, y))
+        
+        # 处理右侧轮廓
+        if i > 0:
+            prev_right_x = merged_endpoints[i-1][1]
+            # 如果右侧x坐标变化，添加一个垂直连接点
+            if abs(right_x - prev_right_x) > 1e-6:
+                right_profile.append((prev_right_x, y))
+        
+        # 添加当前右侧点
+        right_profile.append((right_x, y))
+    
+    # 合并左右轮廓：左侧轮廓从下到上，右侧轮廓从上到下
+    boundary = left_profile + list(reversed(right_profile))
+    
+    # # 确保多边形闭合
+    # if boundary and (boundary[0][0] != boundary[-1][0] or boundary[0][1] != boundary[-1][1]):
+    #     boundary.append(boundary[0])
+    
+    return boundary
 
 def perform_edge_shift(polygon_str, shift_distance=1.0):
     """
@@ -222,7 +277,8 @@ def add_boundary_rectangle(polygon_str):
             [bottom_rect[0][0], bottom_y - height],
             [bottom_rect[1][0], bottom_y]
         ]
-        rectangles.append(new_rect)
+        # rectangles.append(new_rect)
+        rectangles.insert(0, new_rect)
     
     # 转换回点序列
     modified_points = rectangles_to_points(rectangles)

@@ -88,8 +88,8 @@ fit
 
 
 # group information here
-# $(cat ./output/${case}.${type}.${mode}.${boundary}_${core_utilization}.txt)
-$(cat ./output/${case}__${boundary}__${core_utilization}__${iter}.txt)
+
+$(cat ./constraint/${case}__${boundary}__${core_utilization}__${iter}.txt)
 
 # Run placement
 setRouteMode -earlyGlobalHonorMsvRouteConstraint false -earlyGlobalRoutePartitionPinGuide true
@@ -175,7 +175,7 @@ cd ${TAR_PATH}
 
 # 使用临时文件运行innovus
 # timeout 5h innovus -no_gui -files /mnt/hgfs/vm_share/tools/innovus_project_pre_generation/${case}_${type}_${mode}_temp_cmd.tcl || echo "Innovus timed out after 20 minutes for ${case}_${type}_${mode}, continuing with next configuration..."
-innovus -no_gui -files /mnt/hgfs/vm_share/tools/innovus_project_pre_generation/${case}__${boundary}__${core_utilization}__${iter}.tcl
+innovus -no_gui -files /mnt/hgfs/vm_share/tools/innovus_design_space_exploration/${case}__${boundary}__${core_utilization}__${iter}.tcl
 
 # 返回原来的目录
-cd /mnt/hgfs/vm_share/tools/innovus_project_pre_generation
+cd /mnt/hgfs/vm_share/tools/innovus_design_space_exploration
