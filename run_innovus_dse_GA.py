@@ -311,7 +311,8 @@ def crossover(parent1, parent2, case, boundary, core_utilization, iteration, def
     
     return child
 
-def mutate(individual, case, boundary, core_utilization, iteration, mutation_rate=0.2, def_results=None):
+def mutate(individual, case, boundary, core_utilization, iteration, mutation_rate=0.2, def_results=None, 
+          current_generation=1, max_generations=50, high_gen_ratio=0.3, low_gen_ratio=0.7):
     """
     对个体进行变异
     
@@ -321,6 +322,10 @@ def mutate(individual, case, boundary, core_utilization, iteration, mutation_rat
         iteration: 新个体的迭代号
         mutation_rate: 变异概率
         def_results: DEF解析结果
+        current_generation: 当前代数
+        max_generations: 最大代数
+        high_gen_ratio: 高代数比例 (相当于低温阶段)
+        low_gen_ratio: 低代数比例 (相当于高温阶段)
     
     返回:
         Individual: 变异后的个体
@@ -337,19 +342,69 @@ def mutate(individual, case, boundary, core_utilization, iteration, mutation_rat
     # 确定总group数量
     total_groups = len(def_results['instance_groups']) if def_results and 'instance_groups' in def_results else 16
     
-    # 随机确定要修改的组数
-    num_groups = random.randint(1, max(1, total_groups // 3))
+    # 计算代数比例 (0-1之间，0表示第一代，1表示最后一代)
+    generation_ratio = (current_generation - 1) / max(1, max_generations - 1)
+    
+    # 根据代数动态调整要修改的组数
+    if generation_ratio <= low_gen_ratio:  # 早期阶段 (相当于高温)
+        # 早期阶段修改更多组
+        max_group_number = total_groups
+        min_group_number = max(1, total_groups // 3)
+        group_range = max_group_number - min_group_number
+        # 随着代数增加线性减少要修改的组数
+        early_ratio = generation_ratio / low_gen_ratio
+        num_groups = max(1, int(max_group_number - early_ratio * group_range))
+    elif generation_ratio >= high_gen_ratio:  # 后期阶段 (相当于低温)
+        # 后期阶段只修改少量组
+        num_groups = 1
+    else:  # 中期阶段
+        # 中期阶段修改的组数在1到总组数的1/3之间线性变化
+        mid_ratio = (generation_ratio - low_gen_ratio) / (high_gen_ratio - low_gen_ratio)
+        num_groups = max(1, int(total_groups // 3 * (1 - mid_ratio) + 1 * mid_ratio))
+    
+    # 动态调整每个组的修改次数
+    if generation_ratio <= low_gen_ratio:  # 早期阶段
+        # 早期阶段每个组执行更多次修改
+        modifications_per_group = 5  # 最大修改次数
+    elif generation_ratio >= high_gen_ratio:  # 后期阶段
+        # 后期阶段每个组只执行一次修改
+        modifications_per_group = 1  # 最小修改次数
+    else:  # 中期阶段
+        # 中期阶段修改次数线性减少
+        mid_ratio = (generation_ratio - low_gen_ratio) / (high_gen_ratio - low_gen_ratio)
+        modifications_per_group = max(1, int(5 - 4 * mid_ratio))
+    
+    # 动态调整变动幅度
+    if generation_ratio <= low_gen_ratio:  # 早期阶段
+        # 早期阶段使用较大的变动幅度
+        max_shift = 5.0
+        min_shift = 1.5
+        # 随着代数增加线性减少变动幅度
+        early_ratio = generation_ratio / low_gen_ratio
+        shift_distance = max_shift - early_ratio * (max_shift - min_shift)
+    elif generation_ratio >= high_gen_ratio:  # 后期阶段
+        # 后期阶段使用较小的变动幅度
+        shift_distance = 0.5
+    else:  # 中期阶段
+        # 中期阶段变动幅度线性减少
+        mid_ratio = (generation_ratio - low_gen_ratio) / (high_gen_ratio - low_gen_ratio)
+        shift_distance = 1.5 - mid_ratio
+    
+    print(f"变异设置: 代数={current_generation}/{max_generations}, 修改组数={num_groups}, 每组修改次数={modifications_per_group}, 变动幅度={shift_distance:.2f}")
     
     # 生成随机约束文件
     new_constraint_file = mutant.constraint_file
-    modifications = generate_random_constraint(individual.constraint_file, new_constraint_file, None, num_groups=num_groups)
+    modifications = generate_random_constraint(individual.constraint_file, new_constraint_file, None, 
+                                             shift_distance=shift_distance, 
+                                             num_groups=num_groups,
+                                             modifications_per_group=modifications_per_group)
     
     mutant.mod_types = modifications
     mutant.num_groups = num_groups
     
     return mutant
 
-def generate_random_constraint(input_file, output_file, modification_type=None, shift_distance=1.0, num_groups=1):
+def generate_random_constraint(input_file, output_file, modification_type=None, shift_distance=1.0, num_groups=1, modifications_per_group=1):
     """
     生成随机约束文件
     
@@ -358,13 +413,15 @@ def generate_random_constraint(input_file, output_file, modification_type=None, 
         output_file: 输出约束文件
         modification_type: 修改类型，如果为None则随机选择
         shift_distance: 移动距离
-        num_groups: 要修改的组数量
+        num_groups: 要修改的组数量，默认为1
+        modifications_per_group: 每个组要执行的修改次数，默认为1
     
     返回:
         list: 使用的修改类型列表
     """
     # 调用constraint修改函数
-    modification_types_used = modify_constraint_file(input_file, output_file, modification_type, shift_distance, num_groups)
+    modification_types_used = modify_constraint_file(input_file, output_file, modification_type, 
+                                                   shift_distance, num_groups, modifications_per_group)
     
     return modification_types_used
 
@@ -500,6 +557,10 @@ def genetic_algorithm(case, boundaries, core_utilization, population_size=20, ma
     generation = 1
     global_iteration = max([ind.iteration for ind in population]) + 1  # 全局迭代计数器
     
+    # 设置代数比例的高低阈值，用于控制变异强度
+    high_gen_ratio = 0.7  # 高代数比例阈值 (70%的代数后进入精细优化阶段)
+    low_gen_ratio = 0.3   # 低代数比例阈值 (30%的代数前为大幅探索阶段)
+    
     while generation <= max_generations:
         print(f"\n=== 开始第 {generation} 代 ===")
         
@@ -530,13 +591,17 @@ def genetic_algorithm(case, boundaries, core_utilization, population_size=20, ma
                 # 交叉
                 global_iteration += 1
                 child = crossover(parent1, parent2, case, parent1.boundary, core_utilization, global_iteration, primary_def_results)
-                # 变异
+                # 变异 (传递当前代数和最大代数)
                 global_iteration += 1
-                child = mutate(child, case, child.boundary, core_utilization, global_iteration, mutation_rate, primary_def_results)
+                child = mutate(child, case, child.boundary, core_utilization, global_iteration, mutation_rate, 
+                              primary_def_results, current_generation=generation, max_generations=max_generations,
+                              high_gen_ratio=high_gen_ratio, low_gen_ratio=low_gen_ratio)
             else:
-                # 只进行变异
+                # 只进行变异 (传递当前代数和最大代数)
                 global_iteration += 1
-                child = mutate(parent1, case, parent1.boundary, core_utilization, global_iteration, mutation_rate, primary_def_results)
+                child = mutate(parent1, case, parent1.boundary, core_utilization, global_iteration, mutation_rate, 
+                              primary_def_results, current_generation=generation, max_generations=max_generations,
+                              high_gen_ratio=high_gen_ratio, low_gen_ratio=low_gen_ratio)
             
             new_population.append(child)
         
@@ -646,6 +711,8 @@ if __name__ == "__main__":
     parser.add_argument('-m', '--mutation', type=float, default=0.2, help='变异概率')
     parser.add_argument('-e', '--elitism', type=int, default=2, help='精英个体数量')
     parser.add_argument('-d', '--def-file', help='要分析的DEF文件路径')
+    parser.add_argument('--high-gen-ratio', type=float, default=0.7, help='高代数比例阈值，用于控制变异强度')
+    parser.add_argument('--low-gen-ratio', type=float, default=0.3, help='低代数比例阈值，用于控制变异强度')
     
     args = parser.parse_args()
     

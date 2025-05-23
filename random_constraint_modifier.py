@@ -356,7 +356,7 @@ def move_entire_polygon(polygon_str, move_distance=1.0):
     # 转换回字符串
     return points_to_polygon_str(points)
 
-def modify_constraint_file(input_file, output_file, modification_type=None, shift_distance=1.0, num_groups=1):
+def modify_constraint_file(input_file, output_file, modification_type=None, shift_distance=1.0, num_groups=1, modifications_per_group=1):
     """
     修改约束文件中的create_group行
     
@@ -366,6 +366,7 @@ def modify_constraint_file(input_file, output_file, modification_type=None, shif
         modification_type (str, optional): 修改类型，如果为None则随机选择
         shift_distance (float): 移动距离
         num_groups (int): 要修改的组数量，默认为1
+        modifications_per_group (int): 每个组要执行的修改次数，默认为1
     
     返回:
         list: 每个修改组的修改类型列表
@@ -403,41 +404,43 @@ def modify_constraint_file(input_file, output_file, modification_type=None, shif
     
     # 对每个选定的行进行修改
     for line_index in selected_indices:
-        line = lines[line_index]
-        
-        # 为每个组随机选择一种修改类型
-        current_modification_type = modification_type
-        if current_modification_type is None:
-            current_modification_type = random.choice(mod_types)
-        
-        # 记录使用的修改类型
-        modification_types_used.append(current_modification_type)
-        
-        # 提取-polygon部分
-        polygon_pattern = r'(-polygon\s+)({.*})'
-        polygon_match = re.search(polygon_pattern, line)
-        
-        if polygon_match and current_modification_type != "type_parameter":
-            prefix = polygon_match.group(1)
-            polygon_str = polygon_match.group(2)
+        # 对每个组执行多次修改
+        current_line = lines[line_index]
+        for mod_iteration in range(modifications_per_group):
+            # 为每次修改随机选择一种修改类型
+            current_modification_type = modification_type
+            if current_modification_type is None:
+                current_modification_type = random.choice(mod_types)
             
-            # 根据选择的修改类型进行修改
-            if current_modification_type == "edge_shift":
-                modified_polygon = perform_edge_shift(polygon_str, shift_distance)
-            elif current_modification_type == "add_boundary":
-                modified_polygon = add_boundary_rectangle(polygon_str)
-            elif current_modification_type == "remove_boundary":
-                modified_polygon = remove_boundary_rectangle(polygon_str)
-            elif current_modification_type == "move_entire":
-                modified_polygon = move_entire_polygon(polygon_str, shift_distance)
+            # 记录使用的修改类型
+            modification_types_used.append(current_modification_type)
             
-            # 替换原来的多边形部分
-            modified_line = re.sub(polygon_pattern, f"{prefix}{modified_polygon}", line)
-            lines[line_index] = modified_line
-        elif current_modification_type == "type_parameter":
-            # 修改-type参数
-            modified_line = modify_type_parameter(line)
-            lines[line_index] = modified_line
+            # 提取-polygon部分
+            polygon_pattern = r'(-polygon\s+)({.*})'
+            polygon_match = re.search(polygon_pattern, current_line)
+            
+            if polygon_match and current_modification_type != "type_parameter":
+                prefix = polygon_match.group(1)
+                polygon_str = polygon_match.group(2)
+                
+                # 根据选择的修改类型进行修改
+                if current_modification_type == "edge_shift":
+                    modified_polygon = perform_edge_shift(polygon_str, shift_distance)
+                elif current_modification_type == "add_boundary":
+                    modified_polygon = add_boundary_rectangle(polygon_str)
+                elif current_modification_type == "remove_boundary":
+                    modified_polygon = remove_boundary_rectangle(polygon_str)
+                elif current_modification_type == "move_entire":
+                    modified_polygon = move_entire_polygon(polygon_str, shift_distance)
+                
+                # 替换原来的多边形部分
+                current_line = re.sub(polygon_pattern, f"{prefix}{modified_polygon}", current_line)
+            elif current_modification_type == "type_parameter":
+                # 修改-type参数
+                current_line = modify_type_parameter(current_line)
+        
+        # 更新行内容
+        lines[line_index] = current_line
     
     # 写入修改后的内容到输出文件
     with open(output_file, 'w') as f:
@@ -458,6 +461,8 @@ def main():
                        help='移动距离（用于edge_shift和move_entire操作，默认为1.0）')
     parser.add_argument('--num_groups', type=int, default=1,
                        help='要修改的组数量，默认为1')
+    parser.add_argument('--modifications_per_group', type=int, default=1,
+                       help='每个组要执行的修改次数，默认为1')
     
     args = parser.parse_args()
     
@@ -467,7 +472,8 @@ def main():
         args.output_file = f"{base_name}_modified{ext}"
     
     # 执行修改
-    modify_constraint_file(args.input_file, args.output_file, args.modification_type, args.shift_distance, args.num_groups)
+    modify_constraint_file(args.input_file, args.output_file, args.modification_type, 
+                          args.shift_distance, args.num_groups, args.modifications_per_group)
     print(f"修改已完成，结果保存到 {args.output_file}")
 
 if __name__ == "__main__":
